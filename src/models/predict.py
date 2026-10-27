@@ -14,6 +14,7 @@ MODELS = ROOT / "models"
 PROCESSED = ROOT / "data" / "processed"
 SEASON = "2026-27"
 PREV_SEASON = "2025-26"
+REPORTS = ROOT / "reports"
 
 
 def players_table(bootstrap: dict) -> pd.DataFrame:
@@ -114,7 +115,11 @@ def main() -> None:
     for pos in ["GK", "DEF", "MID", "FWD"]:
         print(f"--- {pos} ---")
         print(pred[pred["position"] == pos][cols].head(5).round(2).to_string(index=False))
-
+    REPORTS.mkdir(exist_ok=True)
+    keep = ["element", "web_name", "team_name", "position", "price", "value",
+            "status", "chance_of_playing_next_round", "ep"]
+    pred[keep].assign(gw=gw).to_csv(REPORTS / "predictions_latest.csv", index=False)
+    print(f"Predikcije za dashboard: {REPORTS / 'predictions_latest.csv'}")
 
 if __name__ == "__main__":
     main()
