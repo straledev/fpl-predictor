@@ -1,5 +1,7 @@
 # FPL Predictor
 
+**Live demo:** https://fpl-predictor-straledev.streamlit.app
+
 Predicts Fantasy Premier League points for every player in the upcoming gameweek
 and picks the optimal 15-man squad with integer programming.
 
@@ -44,6 +46,8 @@ FPL API + historical CSVs → data collection → features → LightGBM → squa
    and one captain.
 5. **Live predictions**: for the current season, predictions are scaled by FPL's
    `chance_of_playing_next_round` to account for injuries and suspensions.
+6. **Dashboard** (`app`): Streamlit app with weekly predictions, the optimal squad
+   for any budget and the backtest results.
 
 ## Key findings
 
@@ -58,12 +62,32 @@ FPL API + historical CSVs → data collection → features → LightGBM → squa
 - **Linking players across seasons** improved the backtest by 49 points, while the
   overall MAE stayed the same: the gain is concentrated in the opening gameweeks.
 
+## What the model learned (SHAP)
+
+![SHAP summary](reports/shap_summary.png)
+
+- **Minutes in the previous match is by far the strongest driver** (mean impact
+  0.79 points), more than 3x player price (0.23). It works like a switch: a player
+  who missed the last match loses about 0.6 points, a player who played 90 minutes
+  gains 1.0-1.7. The model is first and foremost a "will he play?" model.
+- **Price has a long tail:** for most players it barely moves the prediction, but
+  for premium players it is the single largest contribution (up to +2 points; +1.94
+  for Haaland in the waterfall below). LightGBM's split-count importance ranked it
+  first; SHAP shows the average effect is 0.23 points, concentrated at the top.
+- Recent form and opponent strength each add around 0.1 points; home advantage 0.08.
+- **Example of the main limitation:** Haaland in GW36 of 2025-26 had the highest
+  prediction in the sample (7.44 points) and scored 0. Historical data contains no
+  pre-match injury or rotation news, so the model cannot see absences coming.
+
+![SHAP waterfall](reports/shap_waterfall_top_player.png)
+
 ## Limitations
 
 - The backtest picks a new squad every gameweek (like a Free Hit each week): no
   transfer limits, no hits and no automatic substitutions.
 - Historical data has no injury news, so the model cannot learn availability; this
   is only corrected in live predictions.
+- Price changes slowly, so the model may react late when a premium player's form drops.
 - 2025-26 introduced points for defensive contributions, which the training data
   does not contain.
 
@@ -74,4 +98,29 @@ pip install -r requirements.txt
 
 python -m src.data.fetch_history         # historical seasons
 python -m src.data.combine
-pytho
+python -m src.features.build_features
+python -m pytest
+python -m src.models.train
+python -m src.backtest.run_backtest
+python -m src.models.explain             # SHAP plots
+
+python -m src.data.fetch                 # current season from the FPL API
+python -m src.models.predict             # predictions for the next gameweek
+python -m src.optimize.squad             # optimal squad
+
+streamlit run app/streamlit_app.py       # dashboard
+```
+
+## Project structure
+
+```
+app/             Streamlit dashboard
+src/
+├── data/        fetching and combining raw data
+├── features/    feature engineering
+├── models/      training, live predictions and SHAP explanations
+├── optimize/    squad optimizer (PuLP)
+└── backtest/    season simulation
+notebooks/       exploratory data analysis
+tests/           leakage tests
+reports/
