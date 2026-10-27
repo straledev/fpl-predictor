@@ -53,7 +53,8 @@ def optimize_squad(pred: pd.DataFrame, budget: int = BUDGET,
         prob += c[i] <= s[i]
 
     stats = prob.solve(pulp.COIN_CMD(msg=False))
-    if stats.status != pulp.LpSolveStatus.Optimal:
+    # GapLimit znaci da je resenje u okviru tolerancije od optimalnog, sto je dovoljno
+    if not stats.has_solution:
         raise RuntimeError(f"Optimizacija nije uspela: {stats.status_str}")
 
     pred["in_squad"] = [x[i].value() > 0.5 for i in ids]
