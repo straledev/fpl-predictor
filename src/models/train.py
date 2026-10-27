@@ -1,6 +1,7 @@
 import warnings
 from pathlib import Path
 
+import joblib
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
@@ -17,11 +18,23 @@ warnings.filterwarnings("ignore", category=ConstantInputWarning)
 
 ROOT = Path(__file__).resolve().parents[2]
 PROCESSED = ROOT / "data" / "processed"
+MODELS = ROOT / "models"
 
 TARGET = "total_points"
 TRAIN_SEASONS = ["2016-17", "2017-18", "2018-19", "2019-20",
                  "2020-21", "2021-22", "2022-23", "2023-24"]
-VAL_SEASON = "2024-25"  # 2025-26 cuvamo za zavrsni test
+VAL_SEASON = "2024-25"
+TEST_SEASON = "2025-26"  # ne dira se do zavrsnog testa
+
+LGBM_PARAMS = dict(
+    learning_rate=0.03,
+    num_leaves=31,
+    min_child_samples=100,
+    subsample=0.8,
+    subsample_freq=1,
+    colsample_bytree=0.8,
+    verbose=-1,
+)
 
 
 def evaluate(df: pd.DataFrame, pred_col: str) -> dict:
@@ -41,6 +54,18 @@ def evaluate(df: pd.DataFrame, pred_col: str) -> dict:
     }
 
 
+def save_model(df: pd.DataFrame, seasons: list[str], features: list[str],
+               n_estimators: int, name: str) -> None:
+    """Trenira LightGBM na datim sezonama i cuva ga zajedno sa spiskom feature-a."""
+    data = df[df["season"].isin(seasons)]
+    model = lgb.LGBMRegressor(n_estimators=n_estimators, **LGBM_PARAMS)
+    model.fit(data[features], data[TARGET])
+
+    MODELS.mkdir(parents=True, exist_ok=True)
+    joblib.dump({"model": model, "features": features, "seasons": seasons}, MODELS / name)
+    print(f"Sacuvan {name}: {len(data)} redova, {n_estimators} stabala")
+
+
 def main() -> None:
     df = pd.read_csv(PROCESSED / "features.csv", low_memory=False)
     features = feature_columns(df)
@@ -53,7 +78,7 @@ def main() -> None:
     pos_mean = train.groupby("position")[TARGET].mean()
     val["pred_baseline"] = val["total_points_roll5"].fillna(val["position"].map(pos_mean))
 
-    # 2. Zvanicna FPL procena
+    # 2. FPL xP: skupljen POSLE kola, pa sadrzi buduce informacije
     val["pred_fpl_xp"] = val["xP"]
 
     # 3. Ridge regresija
@@ -65,17 +90,8 @@ def main() -> None:
     ridge.fit(train[features], train[TARGET])
     val["pred_ridge"] = ridge.predict(val[features])
 
-    # 4. LightGBM (sam obradjuje prazne vrednosti, nema potrebe za imputacijom)
-    lgbm = lgb.LGBMRegressor(
-        n_estimators=3000,
-        learning_rate=0.03,
-        num_leaves=31,
-        min_child_samples=100,
-        subsample=0.8,
-        subsample_freq=1,
-        colsample_bytree=0.8,
-        verbose=-1,
-    )
+    # 4. LightGBM sa early stopping-om na validaciji
+    lgbm = lgb.LGBMRegressor(n_estimators=3000, **LGBM_PARAMS)
     lgbm.fit(
         train[features], train[TARGET],
         eval_set=[(val[features], val[TARGET])],
@@ -96,6 +112,14 @@ def main() -> None:
     }
     print()
     print(pd.DataFrame(results).T.round(3))
+
+    # 5. Cuvanje modela sa brojem stabala koji je nasao early stopping
+    best_iter = lgbm.best_iteration_
+    print()
+    save_model(df, TRAIN_SEASONS + [VAL_SEASON], features, best_iter,
+               "lgbm_backtest.joblib")
+    save_model(df, TRAIN_SEASONS + [VAL_SEASON, TEST_SEASON], features, best_iter,
+               "lgbm_final.joblib")
 
 
 if __name__ == "__main__":
