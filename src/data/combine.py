@@ -41,7 +41,7 @@ def load_season(season: str) -> pd.DataFrame:
     gw = gw[cols].copy()
 
     players = pd.read_csv(VAASTAV / "players" / f"{season}.csv", low_memory=False)
-    players = players[["id", "element_type"]].rename(columns={"id": "element"})
+    players = players[["id", "code", "element_type"]].rename(columns={"id": "element"})
     gw = gw.merge(players, on="element", how="left")
 
     gw["position"] = gw["element_type"].map(POSITIONS)
@@ -63,6 +63,8 @@ def main() -> None:
 
     print(f"Sacuvano {len(df)} redova, {df.shape[1]} kolona u {out}")
     print("Redova bez tima:", df["team"].isna().sum())
+    print("Redova bez code:", df["code"].isna().sum())
+    print("Razlicitih igraca kroz sve sezone:", df["code"].nunique())
     print(df.groupby("season")["team"].nunique())
 
 

@@ -6,7 +6,8 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 PROCESSED = ROOT / "data" / "processed"
 
-PLAYER_KEYS = ["season", "element"]
+PLAYER_KEYS = ["code"]               # isti igrac kroz sve sezone
+SEASON_KEYS = ["season", "element"]  # igrac unutar jedne sezone
 TEAM_KEYS = ["season", "team"]
 WINDOWS = [3, 5]
 PLAYER_STATS = [
@@ -34,12 +35,14 @@ def add_player_features(df: pd.DataFrame) -> pd.DataFrame:
     df["played"] = (df["minutes"] > 0).astype(int)
     df["played60"] = (df["minutes"] >= 60).astype(int)
 
+    # forma kroz sezone: prvi mec sezone vidi kraj prosle sezone
     for col in PLAYER_STATS:
         for w in WINDOWS:
             df[f"{col}_roll{w}"] = prev_rolling_mean(df, PLAYER_KEYS, col, w)
 
-    df["matches_before"] = df.groupby(PLAYER_KEYS).cumcount()
+    df["matches_before"] = df.groupby(SEASON_KEYS).cumcount()
     df["minutes_last"] = df.groupby(PLAYER_KEYS)["minutes"].shift(1)
+    df["days_since_last"] = df.groupby(PLAYER_KEYS)["kickoff_time"].diff().dt.days
     return df
 
 
@@ -90,11 +93,13 @@ def add_context_features(df: pd.DataFrame) -> pd.DataFrame:
 def feature_columns(df: pd.DataFrame) -> list[str]:
     """Spisak kolona koje model sme da koristi (samo informacije pre meca)."""
     suffixes = ("_roll3", "_roll5")
-    singles = ["matches_before", "minutes_last", "is_home", "price", "season_year"]
+    singles = ["matches_before", "minutes_last", "days_since_last",
+               "is_home", "price", "season_year"]
     return [
         c for c in df.columns
         if c.endswith(suffixes) or c.startswith("pos_") or c in singles
     ]
+
 
 def main() -> None:
     df = pd.read_csv(PROCESSED / "all_seasons_gw.csv", low_memory=False)

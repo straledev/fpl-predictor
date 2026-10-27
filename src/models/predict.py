@@ -13,11 +13,12 @@ ROOT = Path(__file__).resolve().parents[2]
 MODELS = ROOT / "models"
 PROCESSED = ROOT / "data" / "processed"
 SEASON = "2026-27"
+PREV_SEASON = "2025-26"
 
 
 def players_table(bootstrap: dict) -> pd.DataFrame:
     players = pd.DataFrame(bootstrap["elements"])[
-        ["id", "web_name", "element_type", "team", "now_cost",
+        ["id", "code", "web_name", "element_type", "team", "now_cost",
          "status", "chance_of_playing_next_round"]
     ].rename(columns={"id": "element", "now_cost": "value"})
     players["position"] = players["element_type"].map(POSITIONS)
@@ -31,7 +32,7 @@ def players_table(bootstrap: dict) -> pd.DataFrame:
 def history_rows(summaries: dict, players: pd.DataFrame) -> pd.DataFrame:
     rows = [r for s in summaries.values() for r in s["history"]]
     hist = pd.DataFrame(rows)
-    hist = hist.merge(players[["element", "position"]], on="element", how="inner")
+    hist = hist.merge(players[["element", "code", "position"]], on="element", how="inner")
     hist["is_future"] = False
     return hist
 
@@ -41,7 +42,7 @@ def future_rows(fixtures: list, players: pd.DataFrame, gw: int) -> pd.DataFrame:
     fx = fx[["id", "event", "team_h", "team_a", "kickoff_time"]].rename(
         columns={"id": "fixture", "event": "round"}
     )
-    cols = ["element", "team", "value", "position"]
+    cols = ["element", "code", "team", "value", "position"]
 
     home = fx.merge(players[cols], left_on="team_h", right_on="team")
     home["was_home"], home["opponent_team"] = True, home["team_a"]
@@ -55,6 +56,14 @@ def future_rows(fixtures: list, players: pd.DataFrame, gw: int) -> pd.DataFrame:
     return fut
 
 
+def previous_season_rows() -> pd.DataFrame:
+    """Mecevi prosle sezone, da forma ne pocinje od nule u prvim kolima."""
+    past = pd.read_csv(PROCESSED / "all_seasons_gw.csv", low_memory=False)
+    past = past[past["season"] == PREV_SEASON].copy()
+    past["is_future"] = False
+    return past
+
+
 def main() -> None:
     folder = latest_raw_dir()
     bootstrap = load_json(folder, "bootstrap_static")
@@ -65,10 +74,13 @@ def main() -> None:
     print(f"Podaci iz {folder.name}, predikcije za kolo {gw}")
 
     players = players_table(bootstrap)
-    df = pd.concat([history_rows(summaries, players),
-                    future_rows(fixtures, players, gw)], ignore_index=True)
-    df["season"] = SEASON
-    df["kickoff_time"] = pd.to_datetime(df["kickoff_time"], utc=True)
+    current = pd.concat([history_rows(summaries, players),
+                         future_rows(fixtures, players, gw)], ignore_index=True)
+    current["season"] = SEASON
+
+    df = pd.concat([previous_season_rows(), current], ignore_index=True)
+    df["kickoff_time"] = pd.to_datetime(df["kickoff_time"], utc=True, format="ISO8601")
+    df["is_future"] = df["is_future"].astype(bool)
     for col in NUMERIC_COLS:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
