@@ -15,12 +15,12 @@ POSITION_ORDER = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
 st.set_page_config(page_title="FPL Predictor", page_icon="⚽", layout="wide")
 
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def load_predictions() -> pd.DataFrame:
     return pd.read_csv(REPORTS / "predictions_latest.csv")
 
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def load_backtest() -> pd.DataFrame:
     return pd.read_csv(REPORTS / "backtest_2025-26.csv", index_col="round")
 
