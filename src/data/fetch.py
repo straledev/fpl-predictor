@@ -1,6 +1,8 @@
 import json
+import time
 from datetime import date
 from pathlib import Path
+
 
 import requests
 
@@ -22,6 +24,16 @@ def save_json(data, name: str) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     print(f"Sacuvano: {path}")
 
+def fetch_player_histories(player_ids: list[int], pause: float = 0.3) -> dict:
+    """Preuzima se istorija po kolima za svakog igraca."""
+    histories = {}
+    for i, player_id in enumerate(player_ids, start=1):
+        histories[player_id] = get_json(f"element-summary/{player_id}/")
+        if i % 50 == 0:
+            print(f"{i}/{len(player_ids)} igraca")
+        time.sleep(pause)
+    return histories
+
 def main() -> None:
     bootstrap = get_json("bootstrap-static/")
     save_json(bootstrap, "bootstrap_static")
@@ -34,6 +46,10 @@ def main() -> None:
         f"timova: {len(bootstrap['teams'])}, "
         f"utakmica: {len(fixtures)}"
     )
+    player_ids = [p["id"] for p in bootstrap["elements"]]
+    histories = fetch_player_histories(player_ids)
+    save_json(histories, "element_summaries")
+
 
 
 if __name__ == "__main__":
