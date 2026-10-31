@@ -2,11 +2,11 @@ name: Update predictions
 
 on:
   schedule:
-    - cron: "17 5 * * *"
-  workflow_dispatch:
+    - cron: "17 5 * * *"   # svaki dan u 05:17 UTC (06:17 po nasem vremenu)
+  workflow_dispatch:       # dugme za rucno pokretanje na GitHub-u
 
 permissions:
-  contents: write
+  contents: write          # dozvola da commit-uje predikcije
 
 jobs:
   update:
@@ -15,10 +15,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
