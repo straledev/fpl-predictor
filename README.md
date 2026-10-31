@@ -3,7 +3,8 @@
 **Live demo:** https://fpl-predictor-straledev.streamlit.app
 
 Predicts Fantasy Premier League points for every player in the upcoming gameweek
-and picks the optimal 15-man squad with integer programming.
+and picks the optimal 15-man squad with integer programming. The pipeline runs
+automatically every day and keeps the live dashboard up to date.
 
 ![Backtest 2025-26](reports/backtest_2025-26.png)
 
@@ -28,12 +29,14 @@ actual points (starting XI plus double points for the captain).
 ## How it works
 
 ```
-FPL API + historical CSVs → data collection → features → LightGBM → squad optimizer → backtest
+FPL API + historical CSVs → data collection → features → LightGBM → squad optimizer → dashboard
+                                         ↑ rebuilt daily by GitHub Actions ↑
 ```
 
 1. **Data** (`src/data`): 10 seasons (2016-17 to 2025-26, ~254k player-match rows)
    from [vaastav/Fantasy-Premier-League](https://github.com/vaastav/Fantasy-Premier-League),
-   plus the official FPL API for the current season.
+   plus the official FPL API for the current season, with automatic retries when the
+   API is overloaded.
 2. **Features** (`src/features`): 46 features, all computed only from matches
    *before* the one being predicted: rolling player form (points, minutes, xG, xA,
    ICT, bonus), team and opponent attacking/defensive form, home/away, price,
@@ -43,11 +46,16 @@ FPL API + historical CSVs → data collection → features → LightGBM → squa
    the optimizer needs *expected* points, not the median.
 4. **Optimizer** (`src/optimize`): binary integer program in PuLP: maximize expected
    points subject to budget, 2-5-5-3 squad, max 3 players per club, valid formation
-   and one captain.
-5. **Live predictions**: for the current season, predictions are scaled by FPL's
-   `chance_of_playing_next_round` to account for injuries and suspensions.
+   and one captain. A transfer mode loads a real FPL team by ID and suggests
+   transfers, weighing each extra transfer against the 4-point hit.
+5. **Live predictions**: for the current season, predictions use only finished
+   matches and are scaled by FPL's `chance_of_playing_next_round` to account for
+   injuries and suspensions.
 6. **Dashboard** (`app`): Streamlit app with weekly predictions, the optimal squad
    for any budget and the backtest results.
+7. **Automation** (`.github/workflows`): GitHub Actions rebuilds the dataset, runs
+   the leakage tests, retrains the model and refreshes the dashboard's predictions
+   every day.
 
 ## Key findings
 
@@ -56,7 +64,12 @@ FPL API + historical CSVs → data collection → features → LightGBM → squa
 - **Data leakage caught twice.** The historical `xP` column (FPL's own expected
   points) turned out to be scraped *after* each gameweek ended, so it looked like an
   unbeatable benchmark. The final match score also slipped into the feature list
-  at one point. Both are now guarded by tests in `tests/`.
+  at one point. Both are now guarded by tests in `tests/`, which run before every
+  automated retraining.
+- **A silent bug in live predictions:** once a gameweek starts, FPL adds rows with
+  0 minutes for matches not yet played. The model read them as "didn't play last
+  match" (its strongest feature per SHAP), and predictions dropped by 30-45% with
+  no error. Live predictions now use only finished matches.
 - **Opponent strength changes expected points by 30-70%**, and home teams score
   0.3-0.5 points more per player on average.
 - **Linking players across seasons** improved the backtest by 49 points, while the
@@ -85,6 +98,8 @@ FPL API + historical CSVs → data collection → features → LightGBM → squa
 
 - The backtest picks a new squad every gameweek (like a Free Hit each week): no
   transfer limits, no hits and no automatic substitutions.
+- The transfer optimizer looks one gameweek ahead and values players at current
+  prices; FPL's actual selling prices are not public.
 - Historical data has no injury news, so the model cannot learn availability; this
   is only corrected in live predictions.
 - Price changes slowly, so the model may react late when a premium player's form drops.
@@ -106,7 +121,8 @@ python -m src.models.explain             # SHAP plots
 
 python -m src.data.fetch                 # current season from the FPL API
 python -m src.models.predict             # predictions for the next gameweek
-python -m src.optimize.squad             # optimal squad
+python -m src.optimize.squad             # optimal squad from scratch
+python -m src.optimize.transfers --entry <FPL_ID> --ft 1   # transfers for your team
 
 streamlit run app/streamlit_app.py       # dashboard
 ```
@@ -114,13 +130,21 @@ streamlit run app/streamlit_app.py       # dashboard
 ## Project structure
 
 ```
-app/             Streamlit dashboard
+.github/workflows/  daily automated pipeline
+app/                Streamlit dashboard
 src/
-├── data/        fetching and combining raw data
-├── features/    feature engineering
-├── models/      training, live predictions and SHAP explanations
-├── optimize/    squad optimizer (PuLP)
-└── backtest/    season simulation
-notebooks/       exploratory data analysis
-tests/           leakage tests
-reports/
+├── data/           fetching and combining raw data
+├── features/       feature engineering
+├── models/         training, live predictions and SHAP explanations
+├── optimize/       squad and transfer optimizers (PuLP)
+└── backtest/       season simulation
+notebooks/          exploratory data analysis
+tests/              leakage tests
+reports/            backtest results, SHAP plots, latest predictions
+```
+
+## Next steps
+
+- Transfer optimizer that plans 3-5 gameweeks ahead, including chip timing
+- Separate model for the probability of playing 60+ minutes
+- Pinned dependency versions for fully reproducible runs
