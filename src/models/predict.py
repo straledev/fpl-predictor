@@ -12,9 +12,9 @@ from src.features.build_features import (
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = ROOT / "models"
 PROCESSED = ROOT / "data" / "processed"
+REPORTS = ROOT / "reports"
 SEASON = "2026-27"
 PREV_SEASON = "2025-26"
-REPORTS = ROOT / "reports"
 
 
 def players_table(bootstrap: dict) -> pd.DataFrame:
@@ -30,9 +30,12 @@ def players_table(bootstrap: dict) -> pd.DataFrame:
     return players[players["position"].notna()]
 
 
-def history_rows(summaries: dict, players: pd.DataFrame) -> pd.DataFrame:
+def history_rows(summaries: dict, players: pd.DataFrame,
+                 finished_fixtures: set[int]) -> pd.DataFrame:
     rows = [r for s in summaries.values() for r in s["history"]]
     hist = pd.DataFrame(rows)
+    # mecevi koji su u toku ili nisu poceli imaju 0 minuta i kvare formu
+    hist = hist[hist["fixture"].isin(finished_fixtures)]
     hist = hist.merge(players[["element", "code", "position"]], on="element", how="inner")
     hist["is_future"] = False
     return hist
@@ -75,7 +78,8 @@ def main() -> None:
     print(f"Podaci iz {folder.name}, predikcije za kolo {gw}")
 
     players = players_table(bootstrap)
-    current = pd.concat([history_rows(summaries, players),
+    finished = {f["id"] for f in fixtures if f["finished_provisional"]}
+    current = pd.concat([history_rows(summaries, players, finished),
                          future_rows(fixtures, players, gw)], ignore_index=True)
     current["season"] = SEASON
 
@@ -115,11 +119,14 @@ def main() -> None:
     for pos in ["GK", "DEF", "MID", "FWD"]:
         print(f"--- {pos} ---")
         print(pred[pred["position"] == pos][cols].head(5).round(2).to_string(index=False))
+
+    # kopija za dashboard (ide na GitHub, za razliku od data/)
     REPORTS.mkdir(exist_ok=True)
     keep = ["element", "web_name", "team_name", "position", "price", "value",
             "status", "chance_of_playing_next_round", "ep"]
     pred[keep].assign(gw=gw).to_csv(REPORTS / "predictions_latest.csv", index=False)
     print(f"Predikcije za dashboard: {REPORTS / 'predictions_latest.csv'}")
+
 
 if __name__ == "__main__":
     main()
